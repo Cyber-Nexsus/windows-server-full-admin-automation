@@ -32,3 +32,24 @@ A PowerShell-based automation solution to quickly deploy a secure and monitored 
 2. Update backup drive:
    ```powershell
    $backupDrive = "E:"
+
+🔐 Security Notes
+Avoid hardcoded passwords (use SecureString in production)
+Customize firewall rules based on your environment
+WDAC policy must be prepared separately
+
+📊 Use Cases
+Enterprise IT Infrastructure Setup
+Lab Environment Automation
+IT Administrator Rapid Deployment
+Security Hardening Baseline
+
+📈 Future Improvements
+Email alert integration (SMTP)
+Disk & RAM monitoring automation
+Centralized log forwarding (SIEM)
+Error handling (try/catch blocks)
+
+👨‍💻 Author
+ASM Shamimul Islam Shawon
+IT Infrastructure & Cybersecurity Professional
