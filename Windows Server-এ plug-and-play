@@ -1,0 +1,98 @@
+Windows PowerShel Script : 
+# ===============================================
+# Ultimate Full Admin Setup Script for Windows Server
+# Automates: Monitoring, Backup, Firewall, WDAC, Email Alerts
+# ===============================================
+
+# --- 0. Check Admin Privileges ---
+If (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
+    Write-Host "Run PowerShell as Administrator!" -ForegroundColor Red
+    exit
+}
+
+# --- 1. Install Required Features ---
+Write-Host "[*] Installing Windows Server Backup..."
+Install-WindowsFeature Windows-Server-Backup -IncludeManagementTools
+
+# --- 2. User & Group Management ---
+Write-Host "[*] Creating Department Users..."
+$users = @(
+    @{Name="FinanceUser"; Password="StrongPass123"; Group="Finance"},
+    @{Name="HRUser"; Password="StrongPass123"; Group="HR"},
+    @{Name="ITUser"; Password="StrongPass123"; Group="Administrators"}
+)
+foreach ($user in $users) {
+    if (-not (Get-LocalUser -Name $user.Name -ErrorAction SilentlyContinue)) {
+        net user $user.Name $user.Password /add
+        net localgroup $user.Group $user.Name /add
+        Write-Host "Created user $($user.Name) in group $($user.Group)"
+    } else { Write-Host "User $($user.Name) already exists" }
+}
+
+# --- 3. Daily Backup & Validation ---
+$backupDrive = "E:"  # Change to your backup drive
+$sourceDrive = "C:"
+$action = New-ScheduledTaskAction -Execute "wbadmin" -Argument "start backup -backupTarget:$backupDrive -include:$sourceDrive -allCritical -quiet"
+$trigger = New-ScheduledTaskTrigger -Daily -At 2am
+if (-not (Get-ScheduledTask -TaskName "DailyFullBackup" -ErrorAction SilentlyContinue)) {
+    Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "DailyFullBackup" -Description "Automated Daily Backup"
+    Write-Host "Scheduled Daily Full Backup at 2AM"
+}
+
+# Backup Validation Function
+function Test-Backup {
+    $versions = wbadmin get versions | Out-String
+    if ($versions) { Write-Host "Backup OK" } 
+    else {
+        Write-Host "Backup NOT Found!"
+        Send-MailMessage -From "admin@company.com" -To "itadmin@company.com" -Subject "Backup Failure Alert" -Body "Daily backup failed on $(hostname)" -SmtpServer "smtp.company.com" -Port 587 -Credential (Get-Credential)
+    }
+}
+# Schedule Validation Daily 3AM
+$valAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-Command &{Test-Backup}"
+$valTrigger = New-ScheduledTaskTrigger -Daily -At 3am
+if (-not (Get-ScheduledTask -TaskName "BackupValidation" -ErrorAction SilentlyContinue)) {
+    Register-ScheduledTask -Action $valAction -Trigger $valTrigger -TaskName "BackupValidation" -Description "Validate Daily Backup"
+}
+
+# --- 4. Install Zabbix Agent ---
+Write-Host "[*] Installing Zabbix Agent..."
+$zabbixUrl="https://cdn.zabbix.com/zabbix/binaries/stable/6.4/6.4.11/zabbix_agent-6.4.11-windows-amd64-openssl.msi"
+$zabbixPath="C:\Temp\zabbix_agent.msi"
+Invoke-WebRequest -Uri $zabbixUrl -OutFile $zabbixPath
+Start-Process msiexec.exe -ArgumentList "/i $zabbixPath /quiet /norestart /l*v install.log" -Wait
+
+# Configure Agent
+$zabbixConf="C:\Program Files\Zabbix Agent\zabbix_agentd.conf"
+$zabbixServer="192.168.10.100"  # Change to your Zabbix server IP
+Set-Content -Path $zabbixConf -Value "Server=$zabbixServer`nServerActive=$zabbixServer`nHostname=$(hostname)"
+Restart-Service "Zabbix Agent"
+
+# --- 5. Firewall Rules ---
+Write-Host "[*] Applying Firewall Rules..."
+if (-not (Get-NetFirewallRule -DisplayName "Block SMB" -ErrorAction SilentlyContinue)) {
+    New-NetFirewallRule -DisplayName "Block SMB" -Direction Inbound -LocalPort 445 -Protocol TCP -Action Block
+}
+$itSubnet="192.168.10.0/24"
+if (-not (Get-NetFirewallRule -DisplayName "Allow RDP IT" -ErrorAction SilentlyContinue)) {
+    New-NetFirewallRule -DisplayName "Allow RDP IT" -Direction Inbound -LocalPort 3389 -RemoteAddress $itSubnet -Action Allow
+}
+
+# --- 6. WDAC / AppLocker (basic example) ---
+Write-Host "[*] Importing WDAC Policy..."
+$policyXML="C:\Policies\WDACPolicy.xml"  # Prepare XML
+if (Test-Path $policyXML) { Add-WdacPolicy -PolicyPath $policyXML; Write-Host "WDAC Policy applied" }
+
+# --- 7. CPU / Memory / Disk Alerts via Email ---
+$cpuThreshold=85
+$memThreshold=90
+$diskThreshold=10
+$cpu=(Get-Counter '\Processor(_Total)\% Processor Time').CounterSamples.CookedValue
+$mem=((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / (Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize)*100
+$disk=((Get-PSDrive C).Free / (Get-PSDrive C).Used + (Get-PSDrive C).Free)*100
+
+if ($cpu -gt $cpuThreshold -or $mem -lt $memThreshold -or $disk -lt $diskThreshold) {
+    Send-MailMessage -From "admin@company.com" -To "itadmin@company.com" -Subject "Server Alert $(hostname)" -Body "CPU: $cpu%, MEM: $mem%, Disk: $disk%" -SmtpServer "smtp.company.com" -Port 587 -Credential (Get-Credential)
+}
+
+Write-Host "[*] Ultimate Full Admin Setup Completed Successfully!"
