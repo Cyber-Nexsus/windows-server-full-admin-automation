@@ -1,0 +1,25 @@
+Setup Steps
+Install Exchange Online 
+
+PowerShell Module
+
+Install-Module -Name ExchangeOnlineManagement
+Connect to Exchange Online
+Connect-ExchangeOnline -UserPrincipalName admin@company.com -ShowProgress $true
+Create Shared Mailbox for Centralized Monitoring
+New-Mailbox -Shared -Name "UserActivityMonitor" -DisplayName "User Activity Monitor"
+Configure Journaling / Forwarding
+Forward all user emails to the shared mailbox:
+Get-Mailbox -ResultSize Unlimited | ForEach-Object {
+    Set-Mailbox $_.UserPrincipalName -DeliverToMailboxAndForward $true -ForwardingSMTPAddress "UserActivityMonitor@company.com"
+}
+Admin Access
+Admin user monitors the shared mailbox in Outlook or via PowerShell:
+Search-Mailbox -Identity "UserActivityMonitor@company.com" -SearchQuery 'Received:today' -TargetMailbox "admin@company.com"
+
+ব্যাখ্যা:
+
+সমস্ত user email centralized mailbox-এ forward হবে।
+Admin user read-only বা full access নিতে পারবে auditing ও security monitoring-এর জন্য।
+Compliance ও security policy অনুসারে ব্যবহার করা যাবে।
+
