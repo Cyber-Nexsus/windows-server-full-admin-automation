@@ -1,0 +1,33 @@
+# Example: Add host via Zabbix API
+$ZabbixURL = "http://192.168.10.100/zabbix/api_jsonrpc.php"
+$User = "Admin"
+$Password = "zabbix_password"
+
+# 1. Authenticate
+$authBody = @{
+    jsonrpc = "2.0"
+    method = "user.login"
+    params = @{
+        user = $User
+        password = $Password
+    }
+    id = 1
+} | ConvertTo-Json
+
+$authResponse = Invoke-RestMethod -Uri $ZabbixURL -Method Post -Body $authBody -ContentType "application/json"
+$authToken = $authResponse.result
+
+# 2. Add Host
+$hostBody = @{
+    jsonrpc = "2.0"
+    method = "host.create"
+    params = @{
+        host = "$(hostname)"
+        interfaces = @(@{type=1; main=1; useip=1; ip="192.168.10.50"; dns=""; port="10050"})
+        groups = @(@{groupid="2"})  # Replace with your group ID
+    }
+    auth = $authToken
+    id = 2
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri $ZabbixURL -Method Post -Body $hostBody -ContentType "application/json"
